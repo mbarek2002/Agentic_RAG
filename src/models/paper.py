@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from src.db.interfaces.postgresql import Base
 
 
-class paper(Base):
+class Paper(Base):
     __tablename__ = "papers"
 
     id = Column(UUID(as_uuid=True) , primary_key=True , default=uuid.uuid4)
