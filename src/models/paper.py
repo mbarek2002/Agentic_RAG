@@ -18,5 +18,5 @@ class Paper(Base):
     published_date = Column(DateTime , nullable=False)
     pdf_url = Column(String , nullable=False)
 
-    created_at = Column(DateTime , default=lambda : DateTime.now(timezone.utc))
-    updated_at = Column(DateTime , default=lambda : DateTime.now(timezone.utc) , onupdate = lambda : DateTime.now(timezone.utc))
+    created_at = Column(DateTime , default=lambda : datetime.now(timezone.utc))
+    updated_at = Column(DateTime , default=lambda : datetime.now(timezone.utc) , onupdate = lambda : DateTime.now(timezone.utc))

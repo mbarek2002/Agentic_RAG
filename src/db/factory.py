@@ -21,6 +21,6 @@ def make_database()->BaseDatabase :
         max_overflow=settings.postgres_max_overflow,
     )
 
-    database = PostgreSQLDatab(config=config)
+    database = PostgreSQLDatabase(config=config)
     database.startup()
     return database

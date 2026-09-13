@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class OllamaClient :
     """ Minimal Ollama client """
 
-    def __init__(self , settings=Settings):
+    def __init__(self , settings:Settings):
         self.base_url = settings.ollama_host
 
     async def health_check(self) -> Dict[str, str]:

@@ -35,8 +35,8 @@ class PostgreSQLDatabase(BaseDatabase):
 
     def __init__(self , config : PostgreSQLSettings):
         self.config = config
-        self.engine = Optional[Engine] = None
-        self.session_factory = Optional[sessionmaker] = None
+        self.engine: Optional[Engine] = None
+        self.session_factory: Optional[sessionmaker] = None
         
     def startup(self) -> None :
         """Initialize the database connection."""
@@ -64,13 +64,13 @@ class PostgreSQLDatabase(BaseDatabase):
             
             # Check which tables exist before creating
             inspector = inspect(self.engine)
-            existing_tables = inspector.get_tables_names()
+            existing_tables = inspector.get_table_names()
 
             # Create tables if they don't exist (idempotent operation)
             Base.metadata.create_all(bind=self.engine)
 
             # Check if any new tables were created
-            updated_tables = inspector.get_tables_names()
+            updated_tables = inspector.get_table_names()
             new_tables = set(updated_tables) - set(existing_tables)
 
             if new_tables:
