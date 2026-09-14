@@ -6,8 +6,9 @@ import uvicorn
 from fastapi import FastAPI
 from src.config import get_settings
 from src.db.factory import make_database
-from src.routers import papers, ping
+from src.routers import papers, ping, search
 from src.services.arxiv.factory import make_arxiv_client
+from src.services.opensearch.factory import make_opensearch_client
 from src.services.pdf_parser.factory import make_pdf_parser_service
 
 # Setup logging
@@ -37,6 +38,16 @@ async def lifespan(app: FastAPI):
     app.state.pdf_parser = make_pdf_parser_service()
     logger.info("Services initialized: arXiv API client, PDF parser")
 
+    opensearch_client = make_opensearch_client()
+    app.state.opensearch_client = opensearch_client
+    if opensearch_client.health_check():
+        if opensearch_client.create_index(force=False):
+            logger.info("OpenSearch index created")
+        stats = opensearch_client.get_index_stats()
+        logger.info(f"OpenSearch index '{opensearch_client.index_name}': {stats.get('document_count', 0)} documents")
+    else:
+        logger.warning("OpenSearch is not reachable at startup - /search will report 503 until it recovers")
+
     logger.info("API ready")
     yield
 
@@ -55,6 +66,7 @@ app = FastAPI(
 # Include routers
 app.include_router(ping.router, prefix="/api/v1")
 app.include_router(papers.router, prefix="/api/v1")
+app.include_router(search.router, prefix="/api/v1")
 
 
 if __name__ == "__main__":

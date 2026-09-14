@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from sqlalchemy import text
 
-from ..dependencies import DatabaseDep, SettingsDep
+from ..dependencies import DatabaseDep, OpenSearchDep, SettingsDep
 from ..schemas.health import HealthResponse, ServiceStatus
 from ..services.ollama import OllamaClient
 
@@ -22,7 +22,7 @@ async def ping():
     response_description="Service health information",
     tags=["Health"],
 )
-async def health_check(settings: SettingsDep, database: DatabaseDep) -> HealthResponse:
+async def health_check(settings: SettingsDep, database: DatabaseDep, opensearch_client: OpenSearchDep) -> HealthResponse:
     """
     Comprehensive health check endpoint for monitoring and load balancer probes.
 
@@ -57,6 +57,21 @@ async def health_check(settings: SettingsDep, database: DatabaseDep) -> HealthRe
             services["database"] = ServiceStatus(status="healthy", message="Connected successfully")
     except Exception as e:
         services["database"] = ServiceStatus(status="unhealthy", message=f"Connection failed: {str(e)}")
+        overall_status = "degraded"
+
+    # Test OpenSearch connectivity
+    try:
+        if not opensearch_client.health_check():
+            services["opensearch"] = ServiceStatus(status="unhealthy", message="Not responding")
+            overall_status = "degraded"
+        else:
+            stats = opensearch_client.get_index_stats()
+            services["opensearch"] = ServiceStatus(
+                status="healthy",
+                message=f"Index '{stats.get('index_name', 'unknown')}' with {stats.get('document_count', 0)} documents",
+            )
+    except Exception as e:
+        services["opensearch"] = ServiceStatus(status="unhealthy", message=f"OpenSearch check failed: {str(e)}")
         overall_status = "degraded"
 
     # Test Ollama service connectivity
