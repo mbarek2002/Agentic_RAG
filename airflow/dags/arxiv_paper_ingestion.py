@@ -46,6 +46,7 @@ setup_task = PythonOperator(
 fetch_task = PythonOperator(
     task_id="fetch_daily_papers",
     python_callable=fetch_daily_papers,
+    execution_timeout=timedelta(minutes=10),
     dag=dag,
 )
 
