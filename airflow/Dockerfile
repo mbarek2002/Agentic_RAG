@@ -38,6 +38,12 @@ RUN pip install --no-cache-dir \
 COPY requirements-airflow.txt /tmp/requirements-airflow.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-airflow.txt
 
+# libgl1/libglib2.0-0: required by opencv-python (docling's table-structure model),
+# which fails to import with "libGL.so.1: cannot open shared object file" without them.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libgl1 libglib2.0-0 && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy and set up entrypoint script
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
