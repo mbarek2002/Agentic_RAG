@@ -34,8 +34,6 @@ RUN pip install --no-cache-dir \
     --constraint "${CONSTRAINT_URL}" \
     psycopg2-binary
 
-RUN apt-get update && apt-get install -y --no-install-recommends procps && rm -rf /var/lib/apt/lists/*
-
 # Copy requirements and install project dependencies
 COPY requirements-airflow.txt /tmp/requirements-airflow.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-airflow.txt
