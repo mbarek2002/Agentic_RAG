@@ -11,20 +11,22 @@ sys.path.insert(0, "/opt/airflow")
 # All imports at the top
 from sqlalchemy import text
 from src.db.factory import make_database
+from src.repositories.paper import PaperRepository
 from src.services.arxiv.factory import make_arxiv_client
 from src.services.metadata_fetcher import make_metadata_fetcher
+from src.services.opensearch.factory import make_opensearch_client
 from src.services.pdf_parser.factory import make_pdf_parser_service
 
 logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
-def get_cached_services() -> Tuple[Any, Any, Any, Any]:
+def get_cached_services() -> Tuple[Any, Any, Any, Any, Any]:
     """
     Get cached service instances using lru_cache for automatic memoization.
 
     Returns:
-        Tuple of (arxiv_client, pdf_parser, database, metadata_fetcher)
+        Tuple of (arxiv_client, pdf_parser, database, metadata_fetcher, opensearch_client)
     """
     logger.info("Initializing services (cached with lru_cache)")
 
@@ -32,12 +34,13 @@ def get_cached_services() -> Tuple[Any, Any, Any, Any]:
     arxiv_client = make_arxiv_client()
     pdf_parser = make_pdf_parser_service()
     database = make_database()
+    opensearch_client = make_opensearch_client()
 
     # Create metadata fetcher with dependencies
-    metadata_fetcher = make_metadata_fetcher(arxiv_client, pdf_parser)
+    metadata_fetcher = make_metadata_fetcher(arxiv_client, pdf_parser, opensearch_client)
 
     logger.info("All services initialized and cached with lru_cache")
-    return arxiv_client, pdf_parser, database, metadata_fetcher
+    return arxiv_client, pdf_parser, database, metadata_fetcher, opensearch_client
 
 
 async def run_paper_ingestion_pipeline(
@@ -56,7 +59,7 @@ async def run_paper_ingestion_pipeline(
     Returns:
         Dictionary with processing results
     """
-    _arxiv_client, _pdf_parser, database, metadata_fetcher = get_cached_services()
+    _arxiv_client, _pdf_parser, database, metadata_fetcher, _opensearch_client = get_cached_services()
 
     with database.get_session() as session:
         return await metadata_fetcher.fetch_and_process_papers(
@@ -75,7 +78,7 @@ def setup_environment():
 
     try:
         # Get cached services (initialized once)
-        arxiv_client, _pdf_parser, database, _metadata_fetcher = get_cached_services()
+        arxiv_client, _pdf_parser, database, _metadata_fetcher, _opensearch_client = get_cached_services()
 
         # Test database connection
         with database.get_session() as session:
@@ -134,78 +137,68 @@ def fetch_daily_papers(**context):
         raise Exception(error_msg)
 
 
-def process_failed_pdfs(**context):
+def index_papers_to_opensearch(**context):
     """
-    Retry processing of PDFs that failed in the main fetch task.
+    Index today's papers from PostgreSQL into OpenSearch for BM25 search.
 
     This function:
-    1. Gets failed PDF list from the main task
-    2. Retries processing with different settings
-    3. Reports final success/failure statistics
+    1. Queries papers stored today directly from PostgreSQL (not just the
+       ones fetched by this run, so re-running indexing alone still works)
+    2. Builds an OpenSearch document per paper (raw_text included as-is;
+       MetadataFetcher already truncates it to opensearch.max_text_size
+       when it was stored)
+    3. Indexes each document via OpenSearchClient.index_paper()
     """
-    logger.info("Processing failed PDFs")
+    logger.info("Indexing today's papers to OpenSearch")
 
     try:
-        fetch_results = context["task_instance"].xcom_pull(task_ids="fetch_daily_papers", key="fetch_results")
+        _arxiv_client, _pdf_parser, database, _metadata_fetcher, opensearch_client = get_cached_services()
 
-        if not fetch_results or not fetch_results.get("errors"):
-            logger.info("No failed PDFs to retry")
-            return {"status": "skipped", "message": "No failures to retry"}
+        if not opensearch_client.health_check():
+            logger.error("OpenSearch is not healthy, skipping indexing")
+            return {"status": "failed", "message": "OpenSearch not healthy", "papers_indexed": 0}
 
-        logger.info(f"Found {len(fetch_results['errors'])} errors to investigate")
+        indexed_count = 0
+        failed_count = 0
 
-        for error in fetch_results["errors"]:
-            # TODO: Implement retry logic
-            logger.warning(f"Error to investigate: {error}")
+        with database.get_session() as session:
+            paper_repo = PaperRepository(session)
+
+            todays_ids = session.execute(text("SELECT id FROM papers WHERE DATE(created_at) = CURRENT_DATE")).fetchall()
+
+            for (paper_id,) in todays_ids:
+                paper = paper_repo.get_by_id(paper_id)
+                if not paper:
+                    continue
+
+                paper_doc = {
+                    "arxiv_id": paper.arxiv_id,
+                    "title": paper.title,
+                    "authors": paper.authors,
+                    "abstract": paper.abstract,
+                    "categories": paper.categories,
+                    "pdf_url": paper.pdf_url,
+                    "published_date": paper.published_date.isoformat() if paper.published_date else None,
+                    "raw_text": paper.raw_text or "",
+                }
+
+                if opensearch_client.index_paper(paper_doc):
+                    indexed_count += 1
+                else:
+                    failed_count += 1
+                    logger.warning(f"Failed to index paper {paper.arxiv_id} to OpenSearch")
+
+        logger.info(f"OpenSearch indexing complete: {indexed_count} indexed, {failed_count} failed")
 
         return {
-            "status": "analyzed",
-            "errors_logged": len(fetch_results["errors"]),
-            "message": "Errors logged for investigation",
+            "status": "success",
+            "papers_indexed": indexed_count,
+            "papers_failed": failed_count,
+            "message": f"{indexed_count} papers indexed to OpenSearch",
         }
 
     except Exception as e:
-        error_msg = f"Failed PDF processing error: {str(e)}"
-        logger.error(error_msg)
-        raise Exception(error_msg)
-
-
-def create_opensearch_placeholders(**context):
-    """
-    Create placeholder entries for OpenSearch indexing.
-
-    This is a Week 2 placeholder - in Week 3+ this will:
-    1. Get successfully stored papers
-    2. Create placeholder OpenSearch documents
-    3. Prepare for actual indexing pipeline
-    """
-    logger.info("Creating OpenSearch placeholders (Week 2)")
-
-    try:
-        fetch_results = context["task_instance"].xcom_pull(task_ids="fetch_daily_papers", key="fetch_results")
-
-        if not fetch_results:
-            logger.warning("No fetch results available for OpenSearch placeholders")
-            return {"status": "skipped", "message": "No papers to process"}
-
-        papers_stored = fetch_results.get("papers_stored", 0)
-
-        logger.info(f"Creating placeholders for {papers_stored} papers")
-
-        # Week 2: Just log what would be indexed
-        # Week 3+: Actually create OpenSearch documents
-        placeholder_results = {
-            "status": "placeholder",
-            "papers_ready_for_indexing": papers_stored,
-            "message": f"Week 2: {papers_stored} papers ready for future OpenSearch indexing",
-        }
-
-        logger.info(f"OpenSearch placeholders: {placeholder_results}")
-
-        return placeholder_results
-
-    except Exception as e:
-        error_msg = f"OpenSearch placeholder creation failed: {str(e)}"
+        error_msg = f"OpenSearch indexing failed: {str(e)}"
         logger.error(error_msg)
         raise Exception(error_msg)
 
@@ -224,9 +217,7 @@ def generate_daily_report(**context):
     try:
         fetch_results = context["task_instance"].xcom_pull(task_ids="fetch_daily_papers", key="fetch_results")
 
-        failed_pdf_results = context["task_instance"].xcom_pull(task_ids="process_failed_pdfs")
-
-        opensearch_results = context["task_instance"].xcom_pull(task_ids="create_opensearch_placeholders")
+        opensearch_results = context["task_instance"].xcom_pull(task_ids="index_papers_to_opensearch")
 
         report = {
             "date": context["ds"],
@@ -240,10 +231,10 @@ def generate_daily_report(**context):
             "processing": {
                 "processing_time_seconds": fetch_results.get("processing_time", 0) if fetch_results else 0,
                 "errors": len(fetch_results.get("errors", [])) if fetch_results else 0,
-                "failed_pdf_retries": failed_pdf_results.get("errors_logged", 0) if failed_pdf_results else 0,
             },
             "opensearch": {
-                "placeholders_created": opensearch_results.get("papers_ready_for_indexing", 0) if opensearch_results else 0,
+                "papers_indexed": opensearch_results.get("papers_indexed", 0) if opensearch_results else 0,
+                "papers_failed": opensearch_results.get("papers_failed", 0) if opensearch_results else 0,
                 "status": opensearch_results.get("status", "unknown") if opensearch_results else "unknown",
             },
         }
@@ -256,7 +247,7 @@ def generate_daily_report(**context):
         logger.info(f"Papers stored: {report['papers']['stored']}")
         logger.info(f"Processing time: {report['processing']['processing_time_seconds']:.1f}s")
         logger.info(f"Errors encountered: {report['processing']['errors']}")
-        logger.info(f"OpenSearch placeholders: {report['opensearch']['placeholders_created']}")
+        logger.info(f"Papers indexed to OpenSearch: {report['opensearch']['papers_indexed']}")
         logger.info("=== END REPORT ===")
 
         return report
