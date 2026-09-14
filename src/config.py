@@ -30,6 +30,12 @@ class ArxivSettings(DefaultSettings):
     max_results: int = 100
     search_category: str = "cs.AI"  # Default category to search
 
+    # PDF download tuning (used by MetadataFetcher's batch pipeline)
+    download_max_retries: int = 3
+    download_retry_delay_base: float = 5.0  # seconds, multiplied by attempt number
+    max_concurrent_downloads: int = 5
+    max_concurrent_parsing: int = 1
+
 
 class PDFParserSettings(DefaultSettings):
     """PDF parser service settings."""
@@ -38,6 +44,14 @@ class PDFParserSettings(DefaultSettings):
     max_file_size_mb: int = 20
     do_ocr: bool = False
     do_table_structure: bool = True
+
+
+class OpenSearchSettings(DefaultSettings):
+    """OpenSearch client and index settings."""
+
+    host: str = "http://localhost:9200"
+    index_name: str = "arxiv-papers"
+    max_text_size: int = 1_000_000  # characters of raw_text indexed per document
 
 
 class Settings(DefaultSettings):
@@ -54,9 +68,6 @@ class Settings(DefaultSettings):
     postgres_pool_size: int = 20
     postgres_max_overflow: int = 0
 
-    # OpenSearch configuration
-    opensearch_host: str = "http://localhost:9200"
-
     # Ollama configuration (used in Week 1 notebook)
     ollama_host: str = "http://localhost:11434"
     ollama_models: Annotated[List[str], NoDecode] = Field(default=["gemma3:4b", "mistral:latest"])
@@ -69,12 +80,25 @@ class Settings(DefaultSettings):
     # PDF parser settings
     pdf_parser: PDFParserSettings = Field(default_factory=PDFParserSettings)
 
+    # OpenSearch settings
+    opensearch: OpenSearchSettings = Field(default_factory=OpenSearchSettings)
+
     @field_validator("ollama_models", mode="before")
     @classmethod
     def parse_ollama_models(cls, v):
         """Parse comma-separated string into list of models."""
         if isinstance(v, str):
             return [model.strip() for model in v.split(",") if model.strip()]
+        return v
+
+    @field_validator("postgres_database_url")
+    @classmethod
+    def validate_postgres_url(cls, v: str) -> str:
+        """Reject obviously wrong connection strings early instead of failing deep inside SQLAlchemy."""
+        if not v.startswith(("postgresql://", "postgresql+psycopg2://")):
+            raise ValueError(
+                f"postgres_database_url must start with 'postgresql://' or 'postgresql+psycopg2://', got: {v!r}"
+            )
         return v
 
 
