@@ -3,11 +3,10 @@ from contextlib import contextmanager
 from typing import Generator , Optional
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import create_engine , inspect , text
 from sqlalchemy.engine import Engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session , sessionmaker
+from sqlalchemy.orm import Session , declarative_base , sessionmaker
 from src.db.interfaces.base import BaseDatabase
 
 
@@ -25,8 +24,7 @@ class PostgreSQLSettings(BaseSettings):
     pool_size : int = Field(default= 20  , description = "Database connection pool size")
     max_overflow : int = Field(default= 0  , description = "Maximum pool overflow")
 
-    class Config:
-        env_prefix = "POSTGRES_"
+    model_config = SettingsConfigDict(env_prefix="POSTGRES_")
 
 Base = declarative_base()
 
