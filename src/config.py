@@ -53,6 +53,22 @@ class OpenSearchSettings(DefaultSettings):
     index_name: str = "arxiv-papers"
     max_text_size: int = 1_000_000  # characters of raw_text indexed per document
 
+    # Hybrid search (chunk-level index + kNN vectors + RRF)
+    chunk_index_suffix: str = "chunks"
+    vector_dimension: int = 1024  # matches Jina embeddings-v3 output size
+    vector_space_type: str = "cosinesimil"
+    rrf_pipeline_name: str = "hybrid-rrf-pipeline"
+    hybrid_search_size_multiplier: int = 3  # over-fetch per query before RRF fusion
+
+
+class ChunkingSettings(DefaultSettings):
+    """Text chunking settings for hybrid indexing."""
+
+    chunk_size: int = 600
+    overlap_size: int = 100
+    min_chunk_size: int = 100
+    section_based: bool = True
+
 
 class Settings(DefaultSettings):
     """Application settings."""
@@ -82,6 +98,12 @@ class Settings(DefaultSettings):
 
     # OpenSearch settings
     opensearch: OpenSearchSettings = Field(default_factory=OpenSearchSettings)
+
+    # Chunking settings
+    chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
+
+    # Jina AI embeddings API key (get one at https://jina.ai) - required for hybrid search
+    jina_api_key: str = ""
 
     @field_validator("ollama_models", mode="before")
     @classmethod
