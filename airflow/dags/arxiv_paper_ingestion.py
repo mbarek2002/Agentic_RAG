@@ -4,11 +4,11 @@ from airflow import DAG
 from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 
-# Import task functions from separate module
+# Import task functions from separate modules
+from arxiv_ingestion.indexing import index_papers_hybrid, verify_hybrid_index
 from arxiv_ingestion.tasks import (
     fetch_daily_papers,
     generate_daily_report,
-    index_papers_to_opensearch,
     setup_environment,
 )
 
@@ -28,11 +28,11 @@ default_args = {
 dag = DAG(
     "arxiv_paper_ingestion",
     default_args=default_args,
-    description="Daily arXiv CS.AI paper ingestion: fetch -> store to PostgreSQL -> index to OpenSearch",
+    description="Daily arXiv CS.AI paper ingestion: fetch -> store to PostgreSQL -> chunk & embed -> hybrid OpenSearch indexing",
     schedule="0 6 * * 1-5",  # Monday-Friday at 6 AM UTC (excludes weekends)
     max_active_runs=1,
     catchup=False,
-    tags=["arxiv", "papers", "ingestion", "opensearch", "week3"],
+    tags=["arxiv", "papers", "ingestion", "opensearch", "hybrid-search", "week4"],
 )
 
 # Task definitions
@@ -50,8 +50,15 @@ fetch_task = PythonOperator(
 )
 
 opensearch_task = PythonOperator(
-    task_id="index_papers_to_opensearch",
-    python_callable=index_papers_to_opensearch,
+    task_id="index_papers_hybrid",
+    python_callable=index_papers_hybrid,
+    execution_timeout=timedelta(minutes=15),
+    dag=dag,
+)
+
+verify_task = PythonOperator(
+    task_id="verify_hybrid_index",
+    python_callable=verify_hybrid_index,
     dag=dag,
 )
 
@@ -73,5 +80,5 @@ cleanup_task = BashOperator(
 )
 
 # Task dependencies
-# Main pipeline: setup -> fetch -> index to OpenSearch -> report -> cleanup
-setup_task >> fetch_task >> opensearch_task >> report_task >> cleanup_task
+# Main pipeline: setup -> fetch -> hybrid index -> verify -> report -> cleanup
+setup_task >> fetch_task >> opensearch_task >> verify_task >> report_task >> cleanup_task

@@ -11,7 +11,6 @@ sys.path.insert(0, "/opt/airflow")
 # All imports at the top
 from sqlalchemy import text
 from src.db.factory import make_database
-from src.repositories.paper import PaperRepository
 from src.services.arxiv.factory import make_arxiv_client
 from src.services.metadata_fetcher import make_metadata_fetcher
 from src.services.opensearch.factory import make_opensearch_client
@@ -138,72 +137,6 @@ def fetch_daily_papers(**context):
         raise Exception(error_msg)
 
 
-def index_papers_to_opensearch(**context):
-    """
-    Index today's papers from PostgreSQL into OpenSearch for BM25 search.
-
-    This function:
-    1. Queries papers stored today directly from PostgreSQL (not just the
-       ones fetched by this run, so re-running indexing alone still works)
-    2. Builds an OpenSearch document per paper (raw_text included as-is;
-       MetadataFetcher already truncates it to opensearch.max_text_size
-       when it was stored)
-    3. Indexes each document via OpenSearchClient.index_paper()
-    """
-    logger.info("Indexing today's papers to OpenSearch")
-
-    try:
-        _arxiv_client, _pdf_parser, database, _metadata_fetcher, opensearch_client = get_cached_services()
-
-        if not opensearch_client.health_check():
-            logger.error("OpenSearch is not healthy, skipping indexing")
-            return {"status": "failed", "message": "OpenSearch not healthy", "papers_indexed": 0}
-
-        indexed_count = 0
-        failed_count = 0
-
-        with database.get_session() as session:
-            paper_repo = PaperRepository(session)
-
-            todays_ids = session.execute(text("SELECT id FROM papers WHERE DATE(created_at) = CURRENT_DATE")).fetchall()
-
-            for (paper_id,) in todays_ids:
-                paper = paper_repo.get_by_id(paper_id)
-                if not paper:
-                    continue
-
-                paper_doc = {
-                    "arxiv_id": paper.arxiv_id,
-                    "title": paper.title,
-                    "authors": paper.authors,
-                    "abstract": paper.abstract,
-                    "categories": paper.categories,
-                    "pdf_url": paper.pdf_url,
-                    "published_date": paper.published_date.isoformat() if paper.published_date else None,
-                    "raw_text": paper.raw_text or "",
-                }
-
-                if opensearch_client.index_paper(paper_doc):
-                    indexed_count += 1
-                else:
-                    failed_count += 1
-                    logger.warning(f"Failed to index paper {paper.arxiv_id} to OpenSearch")
-
-        logger.info(f"OpenSearch indexing complete: {indexed_count} indexed, {failed_count} failed")
-
-        return {
-            "status": "success",
-            "papers_indexed": indexed_count,
-            "papers_failed": failed_count,
-            "message": f"{indexed_count} papers indexed to OpenSearch",
-        }
-
-    except Exception as e:
-        error_msg = f"OpenSearch indexing failed: {str(e)}"
-        logger.error(error_msg)
-        raise Exception(error_msg)
-
-
 def generate_daily_report(**context):
     """
     Generate a daily processing report.
@@ -218,7 +151,9 @@ def generate_daily_report(**context):
     try:
         fetch_results = context["task_instance"].xcom_pull(task_ids="fetch_daily_papers", key="fetch_results")
 
-        opensearch_results = context["task_instance"].xcom_pull(task_ids="index_papers_to_opensearch")
+        indexing_results = context["task_instance"].xcom_pull(task_ids="index_papers_hybrid")
+
+        verify_results = context["task_instance"].xcom_pull(task_ids="verify_hybrid_index")
 
         report = {
             "date": context["ds"],
@@ -234,9 +169,12 @@ def generate_daily_report(**context):
                 "errors": len(fetch_results.get("errors", [])) if fetch_results else 0,
             },
             "opensearch": {
-                "papers_indexed": opensearch_results.get("papers_indexed", 0) if opensearch_results else 0,
-                "papers_failed": opensearch_results.get("papers_failed", 0) if opensearch_results else 0,
-                "status": opensearch_results.get("status", "unknown") if opensearch_results else "unknown",
+                "papers_indexed": indexing_results.get("papers_indexed", 0) if indexing_results else 0,
+                "chunks_indexed": indexing_results.get("total_chunks_indexed", 0) if indexing_results else 0,
+                "papers_failed": indexing_results.get("papers_failed", 0) if indexing_results else 0,
+                "status": indexing_results.get("status", "unknown") if indexing_results else "unknown",
+                "index_total_chunks": verify_results.get("total_chunks", 0) if verify_results else 0,
+                "index_unique_papers": verify_results.get("unique_papers", 0) if verify_results else 0,
             },
         }
 
@@ -248,7 +186,8 @@ def generate_daily_report(**context):
         logger.info(f"Papers stored: {report['papers']['stored']}")
         logger.info(f"Processing time: {report['processing']['processing_time_seconds']:.1f}s")
         logger.info(f"Errors encountered: {report['processing']['errors']}")
-        logger.info(f"Papers indexed to OpenSearch: {report['opensearch']['papers_indexed']}")
+        logger.info(f"Papers indexed to OpenSearch: {report['opensearch']['papers_indexed']} ({report['opensearch']['chunks_indexed']} chunks)")
+        logger.info(f"Hybrid index total: {report['opensearch']['index_total_chunks']} chunks across {report['opensearch']['index_unique_papers']} papers")
         logger.info("=== END REPORT ===")
 
         return report
