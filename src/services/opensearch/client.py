@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from opensearchpy import OpenSearch
+from opensearchpy.exceptions import RequestError
 from src.config import Settings
 
 from .index_config_hybrid import ARXIV_PAPERS_CHUNKS_MAPPING, HYBRID_RRF_PIPELINE
@@ -78,9 +79,17 @@ class OpenSearchClient:
                 logger.info(f"Deleted existing hybrid index: {self.index_name}")
 
             if not self.client.indices.exists(index=self.index_name):
-                self.client.indices.create(index=self.index_name, body=ARXIV_PAPERS_CHUNKS_MAPPING)
-                logger.info(f"Created hybrid index: {self.index_name}")
-                return True
+                try:
+                    self.client.indices.create(index=self.index_name, body=ARXIV_PAPERS_CHUNKS_MAPPING)
+                    logger.info(f"Created hybrid index: {self.index_name}")
+                    return True
+                except RequestError as e:
+                    # Multiple app workers race to create the index on startup (each
+                    # runs its own lifespan); the losers hit resource_already_exists_exception.
+                    if e.error == "resource_already_exists_exception":
+                        logger.info(f"Hybrid index already exists (created by another worker): {self.index_name}")
+                        return False
+                    raise
 
             logger.info(f"Hybrid index already exists: {self.index_name}")
             return False
