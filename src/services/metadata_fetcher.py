@@ -12,7 +12,7 @@ from src.repositories.paper import PaperRepository
 from src.schemas.arxiv.paper import ArxivPaper, PaperCreate
 from src.schemas.pdf_parser.models import ArxivMetadata, ParsedPaper, PdfContent
 from src.services.arxiv.client import ArxivClient
-from src.services.opensearch.client import OpenSearchClient
+from src.services.indexing.hybrid_indexer import HybridIndexingService
 from src.services.pdf_parser.parser import PDFParserService
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ class MetadataFetcher:
         self,
         arxiv_client: ArxivClient,
         pdf_parser: PDFParserService,
-        opensearch_client: Optional[OpenSearchClient] = None,
+        hybrid_indexer: Optional[HybridIndexingService] = None,
         pdf_cache_dir: Optional[Path] = None,
         max_concurrent_downloads: int = 5,
         max_concurrent_parsing: int = 3,
@@ -45,15 +45,16 @@ class MetadataFetcher:
         Args:
             arxiv_client: ArxivClient instance for API calls
             pdf_parser: PDFParserService for parsing PDFs
-            opensearch_client: Optional OpenSearchClient for indexing fetched papers
+            hybrid_indexer: Optional HybridIndexingService for chunking + embedding +
+                indexing fetched papers into OpenSearch
             pdf_cache_dir: Directory for PDF caching (uses client default if None)
             max_concurrent_downloads: Maximum concurrent PDF downloads
             max_concurrent_parsing: Maximum concurrent PDF parsing operations
-            settings: Application settings (used for opensearch.max_text_size); uses default if None
+            settings: Application settings; uses default if None
         """
         self.arxiv_client = arxiv_client
         self.pdf_parser = pdf_parser
-        self.opensearch_client = opensearch_client
+        self.hybrid_indexer = hybrid_indexer
         self.pdf_cache_dir = pdf_cache_dir or self.arxiv_client.pdf_cache_dir
         self.max_concurrent_downloads = max_concurrent_downloads
         self.max_concurrent_parsing = max_concurrent_parsing
@@ -129,13 +130,13 @@ class MetadataFetcher:
 
             # Step 4: Index to OpenSearch if requested
             if index_to_opensearch:
-                if self.opensearch_client:
-                    logger.info("Step 4: Indexing papers to OpenSearch...")
-                    indexed_count = self._index_papers_to_opensearch(papers, pdf_results.get("parsed_papers", {}))
+                if self.hybrid_indexer:
+                    logger.info("Step 4: Chunking, embedding, and indexing papers to OpenSearch...")
+                    indexed_count = await self._index_papers_to_opensearch(papers, pdf_results.get("parsed_papers", {}))
                     results["papers_indexed"] = indexed_count
                 else:
-                    logger.warning("OpenSearch indexing requested but no opensearch_client provided")
-                    results["errors"].append("OpenSearch client not provided for indexing")
+                    logger.warning("OpenSearch indexing requested but no hybrid_indexer provided")
+                    results["errors"].append("Hybrid indexer not provided for indexing")
 
             # Calculate total processing time
             processing_time = (datetime.now() - start_time).total_seconds()
@@ -407,16 +408,17 @@ class MetadataFetcher:
 
         return stored_count
 
-    def _index_papers_to_opensearch(
+    async def _index_papers_to_opensearch(
         self,
         papers: List[ArxivPaper],
         parsed_papers: Dict[str, ParsedPaper],
     ) -> int:
         """
-        Index fetched papers into OpenSearch for BM25 search.
+        Index fetched papers into OpenSearch via HybridIndexingService.
 
-        Raw text is truncated to settings.opensearch.max_text_size characters;
-        papers without parsed PDF content are indexed with an empty raw_text
+        Each paper is chunked (section-based, falling back to word-based),
+        embedded via Jina, and indexed into the chunk-level hybrid index.
+        Papers without parsed PDF content are chunked from an empty body
         (metadata remains searchable via title/abstract/authors).
 
         Args:
@@ -424,46 +426,48 @@ class MetadataFetcher:
             parsed_papers: Dictionary of parsed PDF content by arxiv_id
 
         Returns:
-            Number of papers successfully indexed
+            Number of papers successfully indexed (chunk count is logged separately)
         """
-        if not self.opensearch_client:
+        if not self.hybrid_indexer:
             return 0
 
-        max_text_size = self.settings.opensearch.max_text_size
-        indexed_count = 0
-
+        papers_data = []
         for paper in papers:
-            try:
-                parsed_paper = parsed_papers.get(paper.arxiv_id)
-                raw_text = parsed_paper.pdf_content.raw_text[:max_text_size] if parsed_paper else ""
+            parsed_paper = parsed_papers.get(paper.arxiv_id)
+            sections = (
+                [{"title": section.title, "content": section.content} for section in parsed_paper.pdf_content.sections]
+                if parsed_paper
+                else None
+            )
 
-                opensearch_data = {
+            papers_data.append(
+                {
+                    "id": paper.arxiv_id,  # true Postgres UUID isn't available at this point in the pipeline
                     "arxiv_id": paper.arxiv_id,
                     "title": paper.title,
                     "authors": paper.authors,
                     "abstract": paper.abstract,
                     "categories": paper.categories,
                     "published_date": paper.published_date,
-                    "pdf_url": paper.pdf_url,
-                    "raw_text": raw_text,
+                    "raw_text": parsed_paper.pdf_content.raw_text if parsed_paper else "",
+                    "sections": sections,
                 }
+            )
 
-                if self.opensearch_client.index_paper(opensearch_data):
-                    indexed_count += 1
-                else:
-                    logger.warning(f"Failed to index paper {paper.arxiv_id} to OpenSearch")
+        stats = await self.hybrid_indexer.index_papers_batch(papers_data, replace_existing=True)
+        indexed_count = stats.get("papers_processed", 0)
 
-            except Exception as e:
-                logger.error(f"Error indexing paper {paper.arxiv_id} to OpenSearch: {e}")
-
-        logger.info(f"Indexed {indexed_count}/{len(papers)} papers to OpenSearch")
+        logger.info(
+            f"Indexed {indexed_count}/{len(papers)} papers to OpenSearch "
+            f"({stats.get('total_chunks_indexed', 0)} chunks, {stats.get('total_errors', 0)} errors)"
+        )
         return indexed_count
 
 
 def make_metadata_fetcher(
     arxiv_client: ArxivClient,
     pdf_parser: PDFParserService,
-    opensearch_client: Optional[OpenSearchClient] = None,
+    hybrid_indexer: Optional[HybridIndexingService] = None,
     pdf_cache_dir: Optional[Path] = None,
 ) -> MetadataFetcher:
     """
@@ -477,7 +481,7 @@ def make_metadata_fetcher(
     Args:
         arxiv_client: Configured ArxivClient
         pdf_parser: Configured PDFParserService (singleton with model caching)
-        opensearch_client: Optional configured OpenSearchClient for indexing
+        hybrid_indexer: Optional configured HybridIndexingService for chunk+embed+index
         pdf_cache_dir: Optional PDF cache directory
 
     Returns:
@@ -486,7 +490,7 @@ def make_metadata_fetcher(
     return MetadataFetcher(
         arxiv_client=arxiv_client,
         pdf_parser=pdf_parser,
-        opensearch_client=opensearch_client,
+        hybrid_indexer=hybrid_indexer,
         pdf_cache_dir=pdf_cache_dir,
         max_concurrent_downloads=5,
         max_concurrent_parsing=1,

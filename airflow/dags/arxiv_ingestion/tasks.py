@@ -36,8 +36,9 @@ def get_cached_services() -> Tuple[Any, Any, Any, Any, Any]:
     database = make_database()
     opensearch_client = make_opensearch_client()
 
-    # Create metadata fetcher with dependencies
-    metadata_fetcher = make_metadata_fetcher(arxiv_client, pdf_parser, opensearch_client)
+    # Create metadata fetcher with dependencies (hybrid indexing is done by a
+    # separate Airflow task against Postgres, not through MetadataFetcher here)
+    metadata_fetcher = make_metadata_fetcher(arxiv_client, pdf_parser)
 
     logger.info("All services initialized and cached with lru_cache")
     return arxiv_client, pdf_parser, database, metadata_fetcher, opensearch_client
