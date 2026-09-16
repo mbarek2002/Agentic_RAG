@@ -16,7 +16,6 @@ dependencies = [
     "httpx>=0.28.1",
     "docling>=2.43.0",
     "python-dateutil>=2.9.0.post0",
-    "sentence-transformers>=5.1.0",
     "langfuse>=2.0.0,<3.0.0",
     "redis>=6.4.0",
     "langgraph>=0.2.0",
