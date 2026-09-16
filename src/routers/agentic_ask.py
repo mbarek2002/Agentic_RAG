@@ -37,13 +37,11 @@ async def ask_agentic(
         HTTPException: If processing fails
     """
     try:
-        # NOTE: top_k/use_hybrid are graph-level config, fixed when the
-        # (cached) AgenticRAGService is built - they're baked into the
-        # retriever tool's closure, so a per-request override isn't
-        # supported yet. model can be overridden per-request.
         result = await agentic_rag.ask(
             query=request.query,
             model=request.model,
+            top_k=request.top_k,
+            use_hybrid=request.use_hybrid,
         )
 
         return AgenticAskResponse(

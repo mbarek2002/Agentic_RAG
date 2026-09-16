@@ -3,9 +3,12 @@ from typing import Tuple
 
 from langchain_core.documents import Document
 from langchain_core.tools import tool
+from langgraph.runtime import get_runtime
 
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.opensearch.client import OpenSearchClient
+
+from .context import Context
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +21,19 @@ def create_retriever_tool(
 ):
     """Create a retriever tool that wraps OpenSearch service.
 
+    top_k/use_hybrid here are only the fallback used if get_runtime() can't
+    find a Context (shouldn't happen in normal graph execution - this tool
+    is only ever invoked from inside a compiled graph's ToolNode, which
+    always runs with a Context set). The values that actually apply per
+    request are runtime.context.top_k/use_hybrid, read fresh on every call -
+    see ask()/_run_workflow() in agentic_rag.py, which build a new Context
+    per request even though the compiled graph (and this tool closure) are
+    built once and cached.
+
     :param opensearch_client: Existing OpenSearch service
     :param embeddings_client: Existing Jina embeddings service
-    :param top_k: Number of chunks to retrieve
-    :param use_hybrid: Use hybrid search (BM25 + vector)
+    :param top_k: Fallback number of chunks to retrieve
+    :param use_hybrid: Fallback hybrid search (BM25 + vector) setting
     :returns: LangChain tool for retrieving papers
     """
 
@@ -43,8 +55,17 @@ def create_retriever_tool(
             source extraction, since content alone would otherwise be the
             only thing kept once the tool result is turned into a message)
         """
+        try:
+            runtime = get_runtime(Context)
+            request_top_k = runtime.context.top_k
+            request_use_hybrid = runtime.context.use_hybrid
+        except Exception as e:
+            logger.warning(f"get_runtime() failed, falling back to tool-construction-time defaults: {e}")
+            request_top_k = top_k
+            request_use_hybrid = use_hybrid
+
         logger.info(f"Retrieving papers for query: {query[:100]}...")
-        logger.debug(f"Search mode: {'hybrid' if use_hybrid else 'bm25'}, top_k: {top_k}")
+        logger.debug(f"Search mode: {'hybrid' if request_use_hybrid else 'bm25'}, top_k: {request_top_k}")
 
         # Generate query embedding
         logger.debug("Generating query embedding")
@@ -56,8 +77,8 @@ def create_retriever_tool(
         search_results = opensearch_client.search_unified(
             query=query,
             query_embedding=query_embedding,
-            size=top_k,
-            use_hybrid=use_hybrid,
+            size=request_top_k,
+            use_hybrid=request_use_hybrid,
         )
 
         # Convert SearchHit to LangChain Document
@@ -75,8 +96,8 @@ def create_retriever_tool(
                     "score": hit.get("score", 0.0),
                     "source": f"https://arxiv.org/pdf/{hit['arxiv_id']}.pdf",
                     "section": hit.get("section_name", ""),
-                    "search_mode": "hybrid" if use_hybrid else "bm25",
-                    "top_k": top_k,
+                    "search_mode": "hybrid" if request_use_hybrid else "bm25",
+                    "top_k": request_top_k,
                 },
             )
             documents.append(doc)

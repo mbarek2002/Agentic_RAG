@@ -163,16 +163,24 @@ class AgenticRAGService:
         query: str,
         user_id: str = "api_user",
         model: Optional[str] = None,
+        top_k: Optional[int] = None,
+        use_hybrid: Optional[bool] = None,
     ) -> dict:
         """Ask a question using agentic RAG.
 
         :param query: User question
         :param user_id: User identifier for tracing
         :param model: Optional model override
+        :param top_k: Optional override for the number of chunks the
+            retriever tool fetches per attempt (defaults to graph_config.top_k)
+        :param use_hybrid: Optional override for BM25-only vs hybrid
+            (BM25 + vector) search (defaults to graph_config.use_hybrid)
         :returns: Dictionary with answer, sources, reasoning steps, and metadata
         :raises ValueError: If query is empty
         """
         model_to_use = model or self.graph_config.model
+        top_k_to_use = top_k if top_k is not None else self.graph_config.top_k
+        use_hybrid_to_use = use_hybrid if use_hybrid is not None else self.graph_config.use_hybrid
 
         logger.info("=" * 80)
         logger.info("Starting Agentic RAG Request")
@@ -189,8 +197,8 @@ class AgenticRAGService:
         metadata = {
             "env": self.graph_config.settings.environment,
             "service": "agentic_rag",
-            "top_k": self.graph_config.top_k,
-            "use_hybrid": self.graph_config.use_hybrid,
+            "top_k": top_k_to_use,
+            "use_hybrid": use_hybrid_to_use,
             "model": model_to_use,
         }
 
@@ -205,15 +213,17 @@ class AgenticRAGService:
                     session_id=f"session_{user_id}",
                     metadata=metadata,
                 ) as trace:
-                    return await self._run_workflow(query, model_to_use, user_id, trace)
+                    return await self._run_workflow(query, model_to_use, top_k_to_use, use_hybrid_to_use, user_id, trace)
             else:
-                return await self._run_workflow(query, model_to_use, user_id, None)
+                return await self._run_workflow(query, model_to_use, top_k_to_use, use_hybrid_to_use, user_id, None)
         except Exception as e:
             logger.error(f"Error in Agentic RAG execution: {str(e)}")
             logger.exception("Full traceback:")
             raise
 
-    async def _run_workflow(self, query: str, model_to_use: str, user_id: str, trace) -> dict:
+    async def _run_workflow(
+        self, query: str, model_to_use: str, top_k_to_use: int, use_hybrid_to_use: bool, user_id: str, trace
+    ) -> dict:
         """Execute the workflow with the given trace context."""
         try:
             start_time = time.time()
@@ -245,7 +255,8 @@ class AgenticRAGService:
                 langfuse_enabled=self.langfuse_tracer is not None and self.langfuse_tracer.client is not None,
                 model_name=model_to_use,
                 temperature=self.graph_config.temperature,
-                top_k=self.graph_config.top_k,
+                top_k=top_k_to_use,
+                use_hybrid=use_hybrid_to_use,
                 max_retrieval_attempts=self.graph_config.max_retrieval_attempts,
                 guardrail_threshold=self.graph_config.guardrail_threshold,
             )
