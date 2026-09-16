@@ -177,6 +177,38 @@ class LangfuseTracer:
         except Exception as e:
             logger.error(f"Error scoring trace: {e}")
 
+    def submit_feedback(self, trace_id: str, score: float, comment: Optional[str] = None) -> bool:
+        """
+        Submit user feedback as a score on an existing trace, by ID.
+
+        Unlike score_trace() (which needs a live trace object from the same
+        request), this only needs the trace_id string - it's meant to be
+        called later, e.g. from a separate /feedback endpoint.
+
+        Args:
+            trace_id: ID of the trace to score
+            score: Feedback score
+            comment: Optional feedback comment
+
+        Returns:
+            True if the score was submitted, False if Langfuse is disabled
+            or submission failed
+        """
+        if not self.client:
+            return False
+
+        try:
+            self.client.score(
+                trace_id=trace_id,
+                name="user_feedback",
+                value=score,
+                comment=comment,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error submitting feedback for trace {trace_id}: {e}")
+            return False
+
     def update_span(
         self,
         span,

@@ -4,6 +4,7 @@ import re
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
+from langchain_ollama import ChatOllama
 from src.config import Settings
 from src.services.ollama.prompts import RAGPromptBuilder
 
@@ -20,6 +21,22 @@ class OllamaClient:
         self.timeout = settings.ollama_timeout
         self.default_model = settings.ollama_default_model
         self.prompt_builder = RAGPromptBuilder()
+
+    def get_langchain_model(self, model: Optional[str] = None, temperature: float = 0.0) -> ChatOllama:
+        """Get a LangChain-compatible chat model backed by this Ollama server.
+
+        Used by the LangGraph agentic RAG nodes, which need a model that
+        supports with_structured_output()/bind_tools() rather than this
+        client's own generate()/generate_stream() methods.
+
+        Args:
+            model: Model name (uses settings.ollama_default_model if None)
+            temperature: Sampling temperature
+
+        Returns:
+            A ChatOllama instance pointed at this client's Ollama server
+        """
+        return ChatOllama(model=model or self.default_model, base_url=self.base_url, temperature=temperature)
 
     async def health_check(self) -> Dict[str, str]:
         """Check if Ollama service is available."""

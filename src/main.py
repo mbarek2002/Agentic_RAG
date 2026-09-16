@@ -6,7 +6,7 @@ import uvicorn
 from fastapi import FastAPI
 from src.config import get_settings
 from src.db.factory import make_database
-from src.routers import hybrid_search, papers, ping, ask, search
+from src.routers import agentic_ask, hybrid_search, papers, ping, ask, search
 from src.services.arxiv.factory import make_arxiv_client
 from src.services.cache.factory import make_cache_client
 from src.services.embeddings.factory import make_embeddings_service
@@ -94,6 +94,8 @@ app.include_router(hybrid_search.router, prefix="/api/v1")
 app.include_router(ask.ask_router, prefix="/api/v1")
 app.include_router(ask.stream_router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")
+# agentic_ask.router already declares prefix="/api/v1" itself - don't double it here
+app.include_router(agentic_ask.router)
 
 if __name__ == "__main__":
     uvicorn.run(app, port=8000, host="0.0.0.0")

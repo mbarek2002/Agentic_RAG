@@ -12,6 +12,8 @@ from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.langfuse.client import LangfuseTracer
 from src.services.cache.client import CacheClient
 from src.services.ollama.client import OllamaClient
+from src.services.agents.agentic_rag import AgenticRAGService
+from src.services.agents.factory import make_agentic_rag_service
 
 
 @lru_cache
@@ -81,3 +83,42 @@ EmbeddingsDep = Annotated[JinaEmbeddingsClient, Depends(get_embeddings_service)]
 LangfuseDep = Annotated[LangfuseTracer | None, Depends(get_langfuse_tracer)]
 CacheDep = Annotated[CacheClient | None, Depends(get_cache_client)]
 OllamaDep = Annotated[OllamaClient, Depends(get_ollama_client)]
+
+
+@lru_cache(maxsize=1)
+def _build_agentic_rag_service(
+    opensearch: OpenSearchClient,
+    ollama: OllamaClient,
+    embeddings: JinaEmbeddingsClient,
+    langfuse: LangfuseTracer | None,
+    model: str,
+) -> AgenticRAGService:
+    """Build the agentic RAG service once and cache it.
+
+    Unlike the other Dep factories here (which just proxy app.state
+    singletons built in main.py's lifespan), AgenticRAGService compiles a
+    LangGraph workflow in its constructor - not something to redo on every
+    request. The args above are the same app.state singleton instances on
+    every call, so this lru_cache hits from the second request onward.
+    """
+    return make_agentic_rag_service(
+        opensearch_client=opensearch,
+        ollama_client=ollama,
+        embeddings_client=embeddings,
+        langfuse_tracer=langfuse,
+        model=model,
+    )
+
+
+def get_agentic_rag_service(
+    opensearch: OpenSearchDep,
+    ollama: OllamaDep,
+    embeddings: EmbeddingsDep,
+    langfuse: LangfuseDep,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AgenticRAGService:
+    """Get agentic RAG service."""
+    return _build_agentic_rag_service(opensearch, ollama, embeddings, langfuse, settings.ollama_default_model)
+
+
+AgenticRAGDep = Annotated[AgenticRAGService, Depends(get_agentic_rag_service)]
