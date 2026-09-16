@@ -70,6 +70,34 @@ class ChunkingSettings(DefaultSettings):
     section_based: bool = True
 
 
+class LangfuseSettings(DefaultSettings):
+
+    public_key: str = ""
+    secret_key: str = ""
+    host: str = "http://localhost:3000"  # Self-hosted Langfuse URL
+    enabled: bool = True
+    flush_at: int = 15  # Number of events before flushing
+    flush_interval: float = 1.0  # Seconds between flushes
+    max_retries: int = 3
+    timeout: int = 30
+    debug: bool = False
+
+
+class RedisSettings(DefaultSettings):
+
+    host: str = "localhost"
+    port: int = 6379
+    password: str = ""
+    db: int = 0
+    decode_responses: bool = True
+    socket_timeout: int = 30
+    socket_connect_timeout: int = 30
+
+    # Cache settings
+    ttl_hours: int = 6  # Cache TTL in hours
+
+
+
 class Settings(DefaultSettings):
     """Application settings."""
 
@@ -104,6 +132,12 @@ class Settings(DefaultSettings):
 
     # Jina AI embeddings API key (get one at https://jina.ai) - required for hybrid search
     jina_api_key: str = ""
+
+    # Langfuse observability settings
+    langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
+
+    # Redis cache settings
+    redis: RedisSettings = Field(default_factory=RedisSettings)
 
     @field_validator("ollama_models", mode="before")
     @classmethod
