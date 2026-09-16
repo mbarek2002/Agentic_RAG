@@ -49,6 +49,86 @@ services:
     networks:
       - rag-network
 
+  # ClickHouse: analytics backend used by the Langfuse image
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    container_name: rag-clickhouse
+    environment:
+      - CLICKHOUSE_DB=langfuse
+      - CLICKHOUSE_USER=langfuse
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+      - CLICKHOUSE_PASSWORD=langfuse
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+  # Dedicated PostgreSQL for Langfuse (kept separate from the app's own postgres)
+  langfuse-postgres:
+    image: postgres:16-alpine
+    container_name: rag-langfuse-postgres
+    environment:
+      - POSTGRES_DB=langfuse
+      - POSTGRES_USER=langfuse
+      - POSTGRES_PASSWORD=langfuse
+      - POSTGRES_HOST_AUTH_METHOD=password
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+  # Langfuse self-hosted observability platform (v2). Headlessly provisioned
+  # via LANGFUSE_INIT_* so no manual sign-up is needed - the org/project/API
+  # keys below match LANGFUSE__PUBLIC_KEY/SECRET_KEY in .env.
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: rag-langfuse
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-postgres:5432/langfuse
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=80ea405b41c04b7695efaae4d67ebb8ce4b0ba792f2142a9b5071effd9fb2e98
+      - SALT=86ced88d5e59476ebd9b154105489aff
+      - TELEMETRY_ENABLED=false
+      - NEXT_PUBLIC_SIGN_UP_DISABLED=false
+      - LANGFUSE_INIT_ORG_ID=rag-org
+      - LANGFUSE_INIT_ORG_NAME=Agentic RAG
+      - LANGFUSE_INIT_PROJECT_ID=rag-project
+      - LANGFUSE_INIT_PROJECT_NAME=arxiv-curator
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-240b69c8-694e-47dd-9d45-c965ab5b0585
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-f04b97e5-567d-40ac-b894-7171c6337f01
+      - LANGFUSE_INIT_USER_EMAIL=admin@local.dev
+      - LANGFUSE_INIT_USER_NAME=admin
+      - LANGFUSE_INIT_USER_PASSWORD=d7b8b11ff9de4200
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/public/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - rag-network
+
   opensearch:
     image: opensearchproject/opensearch:2.19.0
     container_name: rag-opensearch
@@ -181,6 +261,8 @@ volumes:
   # ollama_data:
   airflow_logs:
   redis_data:
+  clickhouse_data:
+  langfuse_postgres_data:
 
 networks:
   rag-network:
