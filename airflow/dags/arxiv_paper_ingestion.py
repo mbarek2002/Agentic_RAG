@@ -5,12 +5,10 @@ from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 
 # Import task functions from separate modules
+from arxiv_ingestion.fetching import fetch_daily_papers
 from arxiv_ingestion.indexing import index_papers_hybrid, verify_hybrid_index
-from arxiv_ingestion.tasks import (
-    fetch_daily_papers,
-    generate_daily_report,
-    setup_environment,
-)
+from arxiv_ingestion.reporting import generate_daily_report
+from arxiv_ingestion.setup import setup_environment
 
 # Default DAG arguments
 default_args = {

@@ -4,11 +4,11 @@ import asyncio
 import logging
 import sys
 
-# Add project root to Python path for imports (mirrors tasks.py - the DAG
-# file may import this module before tasks.py has run its own sys.path setup)
+# Add project root to Python path for imports (mirrors common.py - the DAG
+# file may import this module before common.py has run its own sys.path setup)
 sys.path.insert(0, "/opt/airflow")
 
-from arxiv_ingestion.tasks import get_cached_services  # noqa: E402
+from arxiv_ingestion.common import get_cached_services  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from src.repositories.paper import PaperRepository  # noqa: E402
 from src.services.indexing.factory import make_hybrid_indexing_service  # noqa: E402
