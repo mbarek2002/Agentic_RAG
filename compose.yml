@@ -27,6 +27,7 @@ services:
       # - OLLAMA_HOST=http://ollama:11434
       - OLLAMA_HOST=http://host.docker.internal:11434
       - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:rag_password@postgres:5432/rag_db
+    restart: unless-stopped
     networks:
       - rag-network
 
@@ -173,6 +174,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+    restart: unless-stopped
     networks:
       - rag-network
 
@@ -189,6 +191,7 @@ services:
         condition: service_healthy
     env_file:
       - .env
+    restart: unless-stopped
     environment:
       # Airflow-specific environment setup
       - AIRFLOW_HOME=/opt/airflow
