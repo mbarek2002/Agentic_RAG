@@ -1,14 +1,33 @@
-# Core dependencies needed for Airflow tasks
-httpx>=0.27.0
+# Dependencies for the code under src/ that Airflow tasks import (src/ is
+# volume-mounted into this container - see compose.yml). Kept as a separate
+# manifest from pyproject.toml (installed via plain pip in the Airflow
+# Dockerfile, not uv) because apache-airflow==2.10.3 is installed first from
+# its own official constraints file, and re-resolving everything through uv/
+# pyproject.toml here would risk pulling packages that conflict with what
+# Airflow itself needs.
+#
+# Floors below are kept in sync with pyproject.toml's floors where nothing
+# airflow-specific requires otherwise - confirm against pyproject.toml if
+# either changes.
+httpx>=0.28.1
+# SQLAlchemy is the one deliberate exception: Airflow 2.10.3's own constraints
+# file pins SQLAlchemy <2.0 (confirmed installed: 1.4.54), unlike
+# pyproject.toml's >=2.0.0 for the API. src/repositories/paper.py's 2.0-style
+# select()/session.scalars() calls still work under 1.4 (it supports both
+# APIs) - verified working here via airflow/dags/arxiv_ingestion/indexing.py,
+# which already imports PaperRepository. Do NOT bump this to match
+# pyproject.toml without confirming Airflow's own constraints file allows it.
 sqlalchemy>=1.4.36,<2.0.0
-pydantic>=2.0.0,<3.0.0
-python-dateutil>=2.8.0
+pydantic>=2.11.3,<3.0.0
+python-dateutil>=2.9.0.post0
 
 # PDF processing dependencies
-docling>=2.0.0
+docling>=2.43.0
 
-# Search engine dependencies
-opensearch-py>=2.4.0
+# Search engine dependencies - src/services/opensearch/client.py uses the v3
+# client API (chunk-level hybrid search, RRF pipelines); anything <3.0.0
+# would break it.
+opensearch-py>=3.0.0
 
 # Database drivers
-psycopg2-binary>=2.9.0
+psycopg2-binary>=2.9.10
