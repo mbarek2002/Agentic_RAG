@@ -10,6 +10,8 @@ services:
         condition: service_healthy
       opensearch:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')\""]
       interval: 30s
@@ -25,6 +27,25 @@ services:
       # - OLLAMA_HOST=http://ollama:11434
       - OLLAMA_HOST=http://host.docker.internal:11434
       - POSTGRES_DATABASE_URL=postgresql+psycopg2://rag_user:rag_password@postgres:5432/rag_db
+    networks:
+      - rag-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    # No host port mapping: only api/airflow reach it via the internal
+    # rag-network (hostname "redis"). Avoids clashing with any unrelated
+    # Redis already bound to host port 6379.
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
     networks:
       - rag-network
 
@@ -159,6 +180,7 @@ volumes:
   opensearch_data:
   # ollama_data:
   airflow_logs:
+  redis_data:
 
 networks:
   rag-network:

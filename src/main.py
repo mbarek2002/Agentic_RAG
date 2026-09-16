@@ -6,9 +6,12 @@ import uvicorn
 from fastapi import FastAPI
 from src.config import get_settings
 from src.db.factory import make_database
-from src.routers import hybrid_search, papers, ping
+from src.routers import hybrid_search, papers, ping, ask, search
 from src.services.arxiv.factory import make_arxiv_client
+from src.services.cache.factory import make_cache_client
 from src.services.embeddings.factory import make_embeddings_service
+from src.services.langfuse.factory import make_langfuse_tracer
+from src.services.ollama.factory import make_ollama_client
 from src.services.opensearch.factory import make_opensearch_client
 from src.services.pdf_parser.factory import make_pdf_parser_service
 
@@ -55,10 +58,24 @@ async def lifespan(app: FastAPI):
     app.state.embeddings_service = make_embeddings_service()
     logger.info("Embeddings service initialized (Jina AI)")
 
+    app.state.ollama_client = make_ollama_client()
+    logger.info("Ollama client initialized")
+
+    app.state.langfuse_tracer = make_langfuse_tracer()
+    logger.info("Langfuse tracer initialized (no-op if disabled/unconfigured)")
+
+    try:
+        app.state.cache_client = make_cache_client(settings)
+        logger.info("Redis cache client initialized")
+    except Exception as e:
+        app.state.cache_client = None
+        logger.warning(f"Redis cache unavailable, continuing without caching: {e}")
+
     logger.info("API ready")
     yield
 
     # Cleanup
+    app.state.langfuse_tracer.shutdown()
     database.teardown()
     logger.info("API shutdown complete")
 
@@ -74,7 +91,9 @@ app = FastAPI(
 app.include_router(ping.router, prefix="/api/v1")
 app.include_router(papers.router, prefix="/api/v1")
 app.include_router(hybrid_search.router, prefix="/api/v1")
-
+app.include_router(ask.ask_router, prefix="/api/v1")
+app.include_router(ask.stream_router, prefix="/api/v1")
+app.include_router(search.router, prefix="/api/v1")
 
 if __name__ == "__main__":
     uvicorn.run(app, port=8000, host="0.0.0.0")

@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SearchRequest(BaseModel):
@@ -24,9 +24,9 @@ class HybridSearchRequest(BaseModel):
     use_hybrid: bool = Field(True, description="Enable hybrid search (BM25 + vector) with automatic embedding generation")
     min_score: float = Field(0.0, description="Minimum score threshold for results", ge=0.0)
 
-    class Config:
-        allow_population_by_field_name = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_schema_extra={
             "example": {
                 "query": "machine learning neural networks",
                 "size": 10,
@@ -34,7 +34,8 @@ class HybridSearchRequest(BaseModel):
                 "latest_papers": False,
                 "use_hybrid": True,
             }
-        }
+        },
+    )
 
 
 class SearchHit(BaseModel):
@@ -66,5 +67,4 @@ class SearchResponse(BaseModel):
     search_mode: Optional[str] = Field(None, description="Search mode used: bm25, vector, or hybrid")
     error: Optional[str] = None
 
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)

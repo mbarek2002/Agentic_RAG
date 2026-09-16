@@ -32,7 +32,7 @@ async def search_papers(request: SearchRequest, opensearch_client: OpenSearchDep
             size=request.size,
             from_=request.from_,
             categories=request.categories,
-            latest_papers=request.latest_papers,
+            latest=request.latest_papers,
         )
 
         # Convert results to response model
@@ -51,7 +51,15 @@ async def search_papers(request: SearchRequest, opensearch_client: OpenSearchDep
                 )
             )
 
-        return SearchResponse(query=request.query, total=results.get("total", 0), hits=hits, error=results.get("error"))
+        return SearchResponse(
+            query=request.query,
+            total=results.get("total", 0),
+            hits=hits,
+            size=request.size,
+            from_=request.from_,
+            search_mode="bm25",
+            error=results.get("error"),
+        )
 
     except HTTPException:
         raise

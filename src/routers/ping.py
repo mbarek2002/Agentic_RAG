@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from sqlalchemy import text
 
-from ..dependencies import DatabaseDep, OpenSearchDep, SettingsDep
+from ..dependencies import CacheDep, DatabaseDep, LangfuseDep, OpenSearchDep, SettingsDep
 from ..schemas.health import HealthResponse, ServiceStatus
 from ..services.ollama import OllamaClient
 
@@ -22,7 +22,13 @@ async def ping():
     response_description="Service health information",
     tags=["Health"],
 )
-async def health_check(settings: SettingsDep, database: DatabaseDep, opensearch_client: OpenSearchDep) -> HealthResponse:
+async def health_check(
+    settings: SettingsDep,
+    database: DatabaseDep,
+    opensearch_client: OpenSearchDep,
+    cache_client: CacheDep,
+    langfuse_tracer: LangfuseDep,
+) -> HealthResponse:
     """
     Comprehensive health check endpoint for monitoring and load balancer probes.
 
@@ -84,6 +90,22 @@ async def health_check(settings: SettingsDep, database: DatabaseDep, opensearch_
     except Exception as e:
         services["ollama"] = ServiceStatus(status="unhealthy", message=f"Ollama check failed: {str(e)}")
         overall_status = "degraded"
+
+    # Test Redis cache connectivity (optional service - never degrades overall status)
+    if cache_client is None:
+        services["redis"] = ServiceStatus(status="unavailable", message="Cache disabled or unreachable at startup")
+    else:
+        try:
+            cache_client.redis.ping()
+            services["redis"] = ServiceStatus(status="healthy", message="Connected successfully")
+        except Exception as e:
+            services["redis"] = ServiceStatus(status="unhealthy", message=f"Connection failed: {str(e)}")
+
+    # Report Langfuse observability status (optional service - never degrades overall status)
+    if langfuse_tracer is not None and langfuse_tracer.client is not None:
+        services["langfuse"] = ServiceStatus(status="healthy", message=f"Tracing enabled (host: {langfuse_tracer.settings.host})")
+    else:
+        services["langfuse"] = ServiceStatus(status="unavailable", message="Tracing disabled or missing credentials")
 
     return HealthResponse(
         status=overall_status,
