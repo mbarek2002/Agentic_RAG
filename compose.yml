@@ -120,7 +120,8 @@ services:
       - LANGFUSE_INIT_USER_NAME=admin
       - LANGFUSE_INIT_USER_PASSWORD=d7b8b11ff9de4200
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/public/health || exit 1"]
+      # curl isn't installed in this image (unlike the other services here) - use wget instead
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3000/api/public/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
