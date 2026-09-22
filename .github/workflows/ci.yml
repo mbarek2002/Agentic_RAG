@@ -40,25 +40,44 @@ jobs:
   docker-build:
     name: Docker build (api, airflow)
     runs-on: ubuntu-latest
+    # Needed to push images to GHCR - only actually used on push to main
+    # (see the `push:` condition below); PR builds stay validation-only.
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Build api image
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build (and push on main) api image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          push: false
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/agentic_rag-api:latest
+            ghcr.io/${{ github.repository_owner }}/agentic_rag-api:${{ github.sha }}
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
 
-      - name: Build airflow image
+      - name: Build (and push on main) airflow image
         uses: docker/build-push-action@v6
         with:
           context: ./airflow
           file: ./airflow/Dockerfile
-          push: false
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/agentic_rag-airflow:latest
+            ghcr.io/${{ github.repository_owner }}/agentic_rag-airflow:${{ github.sha }}
           cache-from: type=gha,scope=airflow
           cache-to: type=gha,mode=max,scope=airflow
