@@ -4,7 +4,6 @@ from typing import Tuple
 from langchain_core.documents import Document
 from langchain_core.tools import tool
 from langgraph.runtime import get_runtime
-
 from src.services.embeddings.jina_client import JinaEmbeddingsClient
 from src.services.opensearch.client import OpenSearchClient
 

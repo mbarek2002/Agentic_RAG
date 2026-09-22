@@ -1,7 +1,8 @@
 import logging
 
-from arxiv_ingestion.common import get_cached_services
 from sqlalchemy import text
+
+from arxiv_ingestion.common import get_cached_services
 
 logger = logging.getLogger(__name__)
 

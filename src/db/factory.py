@@ -1,9 +1,9 @@
 from src.config import get_settings
 from src.db.interfaces.base import BaseDatabase
-from src.db.interfaces.postgresql import PostgreSQLDatabase , PostgreSQLSettings
+from src.db.interfaces.postgresql import PostgreSQLDatabase, PostgreSQLSettings
 
 
-def make_database()->BaseDatabase :
+def make_database() -> BaseDatabase:
     """
     Factory function to create a database instance.
 

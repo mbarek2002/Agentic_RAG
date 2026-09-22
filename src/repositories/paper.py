@@ -50,32 +50,18 @@ class PaperRepository:
 
     def get_processed_papers(self, limit: int = 100, offset: int = 0) -> List[Paper]:
         stmt = (
-            select(Paper)
-            .where(Paper.pdf_processed.is_(True))
-            .order_by(Paper.published_date.desc())
-            .limit(limit)
-            .offset(offset)
+            select(Paper).where(Paper.pdf_processed.is_(True)).order_by(Paper.published_date.desc()).limit(limit).offset(offset)
         )
         return list(self.session.scalars(stmt).all())
 
     def get_unprocessed_papers(self, limit: int = 100, offset: int = 0) -> List[Paper]:
         stmt = (
-            select(Paper)
-            .where(Paper.pdf_processed.is_(False))
-            .order_by(Paper.published_date.desc())
-            .limit(limit)
-            .offset(offset)
+            select(Paper).where(Paper.pdf_processed.is_(False)).order_by(Paper.published_date.desc()).limit(limit).offset(offset)
         )
         return list(self.session.scalars(stmt).all())
 
     def get_papers_with_raw_text(self, limit: int = 100, offset: int = 0) -> List[Paper]:
-        stmt = (
-            select(Paper)
-            .where(Paper.raw_text.is_not(None))
-            .order_by(Paper.published_date.desc())
-            .limit(limit)
-            .offset(offset)
-        )
+        stmt = select(Paper).where(Paper.raw_text.is_not(None)).order_by(Paper.published_date.desc()).limit(limit).offset(offset)
         return list(self.session.scalars(stmt).all())
 
     def get_processing_stats(self) -> Dict[str, Any]:

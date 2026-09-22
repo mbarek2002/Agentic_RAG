@@ -71,7 +71,6 @@ class ChunkingSettings(DefaultSettings):
 
 
 class LangfuseSettings(DefaultSettings):
-
     public_key: str = ""
     secret_key: str = ""
     host: str = "http://localhost:3000"  # Self-hosted Langfuse URL
@@ -84,7 +83,6 @@ class LangfuseSettings(DefaultSettings):
 
 
 class RedisSettings(DefaultSettings):
-
     host: str = "localhost"
     port: int = 6379
     password: str = ""
@@ -95,7 +93,6 @@ class RedisSettings(DefaultSettings):
 
     # Cache settings
     ttl_hours: int = 6  # Cache TTL in hours
-
 
 
 class Settings(DefaultSettings):
@@ -152,9 +149,7 @@ class Settings(DefaultSettings):
     def validate_postgres_url(cls, v: str) -> str:
         """Reject obviously wrong connection strings early instead of failing deep inside SQLAlchemy."""
         if not v.startswith(("postgresql://", "postgresql+psycopg2://")):
-            raise ValueError(
-                f"postgres_database_url must start with 'postgresql://' or 'postgresql+psycopg2://', got: {v!r}"
-            )
+            raise ValueError(f"postgres_database_url must start with 'postgresql://' or 'postgresql+psycopg2://', got: {v!r}")
         return v
 
 

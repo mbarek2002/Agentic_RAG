@@ -20,32 +20,26 @@ files = [
     "db/interfaces/__init__.py",
     "db/interfaces/base.py",
     "db/interfaces/postgresql.py",
-
     # models
     "models/__init__.py",
     "models/paper.py",
-
     # repositories
     "repositories/__init__.py",
     "repositories/paper.py",
-
     # routers
     "routers/__init__.py",
     "routers/ask.py",
     "routers/papers.py",
     "routers/ping.py",
-
     # schemas
     "schemas/__init__.py",
     "schemas/ask.py",
     "schemas/health.py",
     "schemas/paper.py",
-
     # services
     "services/__init__.py",
     "services/ollama/__init__.py",
     "services/ollama/client.py",
-
     # root
     "config.py",
 ]

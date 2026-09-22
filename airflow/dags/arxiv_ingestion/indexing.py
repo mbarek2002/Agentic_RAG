@@ -8,10 +8,11 @@ import sys
 # file may import this module before common.py has run its own sys.path setup)
 sys.path.insert(0, "/opt/airflow")
 
-from arxiv_ingestion.common import get_cached_services  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from src.repositories.paper import PaperRepository  # noqa: E402
 from src.services.indexing.factory import make_hybrid_indexing_service  # noqa: E402
+
+from arxiv_ingestion.common import get_cached_services  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
